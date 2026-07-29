@@ -954,13 +954,22 @@ function tryPlayLocalAudio(url, btnEl){
     let settled = false;
     const audio = new Audio();
     const finish = (ok) => { if(!settled){ settled = true; resolve(ok); } };
-    audio.oncanplaythrough = () => {
-      audio.play().then(() => finish(true)).catch(() => finish(false));
-    };
     audio.onended = () => { if(btnEl) btnEl.classList.remove('speaking'); };
+    // A real error (e.g. 404 — file missing) fires quickly; don't wait for it.
     audio.onerror = () => finish(false);
     audio.src = url;
-    setTimeout(() => finish(false), 1200); // don't wait forever if the file is missing
+    // Try to play as soon as the browser is willing to (it will buffer/stream
+    // as needed) instead of waiting for the whole file to be fully loaded —
+    // that's what was causing slow connections to wrongly fall back.
+    const playPromise = audio.play();
+    if(playPromise && typeof playPromise.then === 'function'){
+      playPromise.then(() => finish(true)).catch(() => finish(false));
+    } else {
+      finish(true);
+    }
+    // Safety net only, in case neither play() nor onerror ever resolve
+    // (e.g. a stalled connection) — generous so slow networks still work.
+    setTimeout(() => finish(false), 8000);
   });
 }
 
