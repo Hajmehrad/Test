@@ -940,7 +940,46 @@ function showTtsToast(msg){
 // works the same in every browser; only a real playback failure now shows
 // a toast, handled inside speakGerman/fallbackToLocalSpeech.)
 
+// ---- Local pre-recorded audio (works fully offline — no network, no TTS engine) ----
+async function sha256Hex(text){
+  const enc = new TextEncoder().encode(text);
+  const digest = await crypto.subtle.digest('SHA-256', enc);
+  return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Tries to play a local file. Resolves true if playback actually started,
+// false if the file is missing/unplayable (so callers can fall back).
+function tryPlayLocalAudio(url, btnEl){
+  return new Promise((resolve) => {
+    let settled = false;
+    const audio = new Audio();
+    const finish = (ok) => { if(!settled){ settled = true; resolve(ok); } };
+    audio.oncanplaythrough = () => {
+      audio.play().then(() => finish(true)).catch(() => finish(false));
+    };
+    audio.onended = () => { if(btnEl) btnEl.classList.remove('speaking'); };
+    audio.onerror = () => finish(false);
+    audio.src = url;
+    setTimeout(() => finish(false), 1200); // don't wait forever if the file is missing
+  });
+}
+
 function speakGerman(text, btnEl){
+  if(!text) return;
+  const cleanText = text.trim();
+  document.querySelectorAll('.speak-btn.speaking').forEach(b => b.classList.remove('speaking'));
+  if(btnEl) btnEl.classList.add('speaking');
+
+  sha256Hex(cleanText).then((hash) => {
+    return tryPlayLocalAudio('audio/' + hash + '.mp3', btnEl);
+  }).catch(() => false).then((playedLocally) => {
+    if(playedLocally) return; // done — fully offline, no fallback needed
+    if(btnEl) btnEl.classList.remove('speaking');
+    speakGermanOnline(cleanText, btnEl);
+  });
+}
+
+function speakGermanOnline(text, btnEl){
   if(!text) return;
 
   // 1) Capacitor native TTS plugin (@capacitor-community/text-to-speech) —
